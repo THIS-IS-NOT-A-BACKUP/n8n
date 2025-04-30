@@ -1,4 +1,5 @@
 import type { ProjectIcon, ProjectRole, ProjectType } from '@n8n/api-types';
+import type { Variables } from '@n8n/db';
 import type { AssignableRole, GlobalRole, Scope } from '@n8n/permissions';
 import type express from 'express';
 import type {
@@ -9,9 +10,9 @@ import type {
 
 import type { Project } from '@/databases/entities/project';
 import type { User } from '@/databases/entities/user';
-import type { Variables } from '@/databases/entities/variables';
 import type { WorkflowHistory } from '@/databases/entities/workflow-history';
-import type { ListQuery } from '@/types-db';
+
+import type { ListQueryDb } from './types-db';
 
 export type APIRequest<
 	RouteParams = {},
@@ -42,13 +43,35 @@ export type AuthenticatedRequest<
 	};
 };
 
+export namespace ListQuery {
+	export type Request = AuthenticatedRequest<{}, {}, {}, Params> & {
+		listQueryOptions?: Options;
+	};
+
+	export type Params = {
+		filter?: string;
+		skip?: string;
+		take?: string;
+		select?: string;
+		sortBy?: string;
+	};
+
+	export type Options = {
+		filter?: Record<string, unknown>;
+		select?: Record<string, true>;
+		skip?: number;
+		take?: number;
+		sortBy?: string;
+	};
+}
+
 // ----------------------------------
 //            list query
 // ----------------------------------
 
 export function hasSharing(
-	workflows: ListQuery.Workflow.Plain[] | ListQuery.Workflow.WithSharing[],
-): workflows is ListQuery.Workflow.WithSharing[] {
+	workflows: ListQueryDb.Workflow.Plain[] | ListQueryDb.Workflow.WithSharing[],
+): workflows is ListQueryDb.Workflow.WithSharing[] {
 	return workflows.some((w) => 'shared' in w);
 }
 
