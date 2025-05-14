@@ -746,12 +746,6 @@ export const KEEP_AUTH_IN_NDV_FOR_NODES = [
 export const MAIN_AUTH_FIELD_NAME = 'authentication';
 export const NODE_RESOURCE_FIELD_NAME = 'resource';
 
-export const CREDENTIAL_DOCS_EXPERIMENT = {
-	name: '024_credential_docs',
-	control: 'control',
-	variant: 'variant',
-};
-
 export const EASY_AI_WORKFLOW_EXPERIMENT = {
 	name: '026_easy_ai_workflow',
 	control: 'control',
@@ -771,7 +765,6 @@ export const WORKFLOW_BUILDER_EXPERIMENT = {
 };
 
 export const EXPERIMENTS_TO_TRACK = [
-	CREDENTIAL_DOCS_EXPERIMENT.name,
 	EASY_AI_WORKFLOW_EXPERIMENT.name,
 	AI_CREDITS_EXPERIMENT.name,
 	WORKFLOW_BUILDER_EXPERIMENT.name,
@@ -849,6 +842,7 @@ export const nonExistingJsonPath = '_!^&*';
 export const ASK_AI_MAX_PROMPT_LENGTH = 600;
 export const ASK_AI_MIN_PROMPT_LENGTH = 15;
 export const ASK_AI_LOADING_DURATION_MS = 12000;
+export const ASK_AI_SLIDE_OUT_DURATION_MS = 200;
 
 export const APPEND_ATTRIBUTION_DEFAULT_PATH = 'parameters.options.appendAttribution';
 
