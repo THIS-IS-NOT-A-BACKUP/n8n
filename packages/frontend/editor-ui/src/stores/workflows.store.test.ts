@@ -659,6 +659,56 @@ describe('useWorkflowsStore', () => {
 			});
 		});
 
+		it('should replace placeholder task data in waiting nodes correctly', () => {
+			const runWithExistingRunData = deepCopy(executionResponse);
+			runWithExistingRunData.data = {
+				resultData: {
+					runData: {
+						[successEvent.nodeName]: [
+							{
+								hints: [],
+								startTime: 1727867966633,
+								executionIndex: 2,
+								executionTime: 1,
+								source: [],
+								executionStatus: 'waiting',
+								data: {
+									main: [
+										[
+											{
+												json: {},
+												pairedItem: {
+													item: 0,
+												},
+											},
+										],
+									],
+								},
+							},
+						],
+					},
+				},
+			};
+			workflowsStore.setWorkflowExecutionData(runWithExistingRunData);
+
+			workflowsStore.nodesByName[successEvent.nodeName] = mock<INodeUi>({
+				type: 'n8n-nodes-base.manualTrigger',
+			});
+
+			// ACT
+			workflowsStore.updateNodeExecutionData(successEvent);
+
+			expect(workflowsStore.workflowExecutionData).toEqual({
+				...runWithExistingRunData,
+				data: {
+					resultData: {
+						runData: {
+							[successEvent.nodeName]: [successEvent.data],
+						},
+					},
+				},
+			});
+		});
 		it('should replace existing placeholder task data in new log view', () => {
 			settingsStore.settings = {
 				logsView: {
@@ -1042,7 +1092,36 @@ describe('useWorkflowsStore', () => {
 								},
 							],
 						},
-						pinData: {},
+						pinData: {
+							[nodeName]: [
+								{
+									json: {
+										foo: 'bar',
+									},
+									pairedItem: [
+										{
+											item: 0,
+											sourceOverwrite: {
+												previousNode: "When clicking 'Test workflow'",
+											},
+										},
+									],
+								},
+							],
+							'Edit Fields': [
+								{
+									json: {
+										bar: 'foo',
+									},
+									pairedItem: {
+										item: 1,
+										sourceOverwrite: {
+											previousNode: nodeName,
+										},
+									},
+								},
+							],
+						},
 						lastNodeExecuted: 'Edit Fields',
 					},
 				},
@@ -1057,6 +1136,37 @@ describe('useWorkflowsStore', () => {
 				typeVersion: 3.4,
 			});
 
+			workflowsStore.workflow.pinData = {
+				[nodeName]: [
+					{
+						json: {
+							foo: 'bar',
+						},
+						pairedItem: {
+							item: 2,
+							sourceOverwrite: {
+								previousNode: "When clicking 'Test workflow'",
+							},
+						},
+					},
+				],
+				'Edit Fields': [
+					{
+						json: {
+							bar: 'foo',
+						},
+						pairedItem: [
+							{
+								item: 3,
+								sourceOverwrite: {
+									previousNode: nodeName,
+								},
+							},
+						],
+					},
+				],
+			};
+
 			workflowsStore.renameNodeSelectedAndExecution({ old: nodeName, new: newName });
 
 			expect(workflowsStore.nodeMetadata[nodeName]).not.toBeDefined();
@@ -1070,6 +1180,32 @@ describe('useWorkflowsStore', () => {
 			).toEqual([
 				{
 					previousNode: newName,
+				},
+			]);
+			expect(
+				workflowsStore.workflowExecutionData?.data?.resultData.pinData?.[nodeName],
+			).not.toBeDefined();
+			expect(
+				workflowsStore.workflowExecutionData?.data?.resultData.pinData?.[newName],
+			).toBeDefined();
+			expect(
+				workflowsStore.workflowExecutionData?.data?.resultData.pinData?.['Edit Fields'][0]
+					.pairedItem,
+			).toEqual({
+				item: 1,
+				sourceOverwrite: {
+					previousNode: newName,
+				},
+			});
+
+			expect(workflowsStore.workflow.pinData?.[nodeName]).not.toBeDefined();
+			expect(workflowsStore.workflow.pinData?.[newName]).toBeDefined();
+			expect(workflowsStore.workflow.pinData?.['Edit Fields'][0].pairedItem).toEqual([
+				{
+					item: 3,
+					sourceOverwrite: {
+						previousNode: newName,
+					},
 				},
 			]);
 		});
