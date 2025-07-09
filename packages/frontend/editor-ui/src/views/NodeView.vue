@@ -1209,6 +1209,10 @@ function onOpenNodeCreatorFromCanvas(source: NodeCreatorOpenSource) {
 function onToggleNodeCreator(options: ToggleNodeCreatorOptions) {
 	nodeCreatorStore.setNodeCreatorState(options);
 
+	if (options.createNodeActive) {
+		focusPanelStore.closeFocusPanel();
+	}
+
 	if (!options.createNodeActive && !options.hasAddedNodes) {
 		uiStore.resetLastInteractedWith();
 	}
@@ -2153,7 +2157,7 @@ onBeforeUnmount(() => {
 				/>
 			</Suspense>
 		</WorkflowCanvas>
-		<FocusPanel v-if="isFocusPanelFeatureEnabled" :executable="!isCanvasReadOnly" />
+		<FocusPanel v-if="isFocusPanelFeatureEnabled" :is-canvas-read-only="isCanvasReadOnly" />
 	</div>
 </template>
 
