@@ -66,7 +66,7 @@ export const API_KEY_RESOURCES = {
 	project: ['create', 'update', 'delete', 'list'] as const,
 	user: ['read', 'list', 'create', 'changeRole', 'delete', 'enforceMfa'] as const,
 	execution: ['delete', 'read', 'retry', 'list', 'get'] as const,
-	credential: ['create', 'update', 'move', 'delete'] as const,
+	credential: ['create', 'update', 'move', 'delete', 'list'] as const,
 	sourceControl: ['pull'] as const,
 	workflowTags: ['update', 'list'] as const,
 	dataTable: ['create', 'read', 'update', 'delete', 'list'] as const,
@@ -78,4 +78,11 @@ export const PROJECT_ADMIN_ROLE_SLUG = 'project:admin';
 export const PROJECT_EDITOR_ROLE_SLUG = 'project:editor';
 export const PROJECT_VIEWER_ROLE_SLUG = 'project:viewer';
 export const PROJECT_CHAT_USER_ROLE_SLUG = 'project:chatUser';
-export const PERSONAL_SPACE_PUBLISHING_SETTING_KEY = 'security.personalSpacePublishing';
+export const PERSONAL_SPACE_PUBLISHING_SETTING = {
+	key: 'security.personalSpacePublishing',
+	scopes: ['workflow:publish'],
+};
+export const PERSONAL_SPACE_SHARING_SETTING = {
+	key: 'security.personalSpaceSharing',
+	scopes: ['workflow:share', 'credential:share', 'credential:move'],
+};
