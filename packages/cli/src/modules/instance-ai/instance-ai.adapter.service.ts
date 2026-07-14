@@ -50,7 +50,11 @@ import {
 	WorkflowSaveConflictError,
 } from '@n8n/instance-ai';
 import type { WorkflowJSON } from '@n8n/workflow-sdk';
-import { upsertEvaluationConfigSchema } from '@n8n/api-types';
+import {
+	CONFIG_EVALUATIONS_FLAG,
+	CONFIG_EVALUATIONS_ENABLED_VARIANT,
+	upsertEvaluationConfigSchema,
+} from '@n8n/api-types';
 import { GlobalConfig } from '@n8n/config';
 import { LICENSE_FEATURES, Time } from '@n8n/constants';
 import type { User, ExecutionSummaries, EvaluationConfig } from '@n8n/db';
@@ -107,6 +111,7 @@ import {
 	SCHEDULE_TRIGGER_NODE_TYPE,
 	TimeoutExecutionCancelledError,
 	UnexpectedError,
+	isTriggerNodeType,
 	jsonParse,
 	createRunExecutionData,
 	calculateWorkflowChecksum,
@@ -120,6 +125,7 @@ import { EvaluationConfigService } from '@/evaluation.ee/evaluation-config.servi
 import { EventService } from '@/events/event.service';
 import { ExecutionPersistence } from '@/executions/execution-persistence';
 import { License } from '@/license';
+import { PostHogClient } from '@/posthog';
 import { LoadNodesAndCredentials } from '@/load-nodes-and-credentials';
 import { NodeTypes } from '@/node-types';
 import { AgentsCredentialProvider } from '@/modules/agents/adapters/agents-credential-provider';
@@ -282,10 +288,20 @@ export class InstanceAiAdapterService {
 			/** Pre-bound agent for the build-existing-agent flow. When omitted, the
 			 *  assistant can create one via the build-agent tool. */
 			agentId?: string;
+			/** Per-user config-evals gate (via `isConfigEvalsEnabled`). Falsy →
+			 *  eval-config service/tool not wired. */
+			configEvalsEnabled?: boolean;
 		},
 	): InstanceAiContext {
-		const { searchProxyConfig, pushRef, threadId, projectId, credentialIdAllowlist, agentId } =
-			options ?? {};
+		const {
+			searchProxyConfig,
+			pushRef,
+			threadId,
+			projectId,
+			credentialIdAllowlist,
+			agentId,
+			configEvalsEnabled,
+		} = options ?? {};
 
 		// Record gateway availability once per context. Fire-and-forget: the
 		// underlying config is cached process-wide (1h TTL) so this rarely hits
@@ -301,7 +317,7 @@ export class InstanceAiAdapterService {
 			credentialService: this.createCredentialAdapter(user, projectId, credentialIdAllowlist),
 			nodeService: this.createNodeAdapter(user),
 			dataTableService: this.createDataTableAdapter(user, projectId),
-			...(this.evaluationConfigService
+			...(configEvalsEnabled && this.evaluationConfigService
 				? {
 						evaluationConfigService: this.createEvaluationConfigAdapter(
 							this.evaluationConfigService,
@@ -316,6 +332,9 @@ export class InstanceAiAdapterService {
 			licenseHints: this.buildLicenseHints(),
 			logger: this.logger,
 			nodeTypesProvider: this.nodeTypes,
+			// Optional call for the same reason as addPostProcessor?.() above:
+			// adapter tests construct the service with placeholder deps.
+			outputSchemaLookup: this.loadNodesAndCredentials.createOutputSchemaLookup?.(),
 			allowSendingParameterValues: this.allowSendingParameterValues,
 			...(builderDelegateAdapter && agentId && projectId
 				? { agentBuilderTarget: { agentId, projectId } }
@@ -344,7 +363,10 @@ export class InstanceAiAdapterService {
 		if (!Container.get(ModuleRegistry).isActive('agents')) return null;
 		try {
 			return Container.get(InstanceAiBuilderDelegateAdapterService);
-		} catch {
+		} catch (error) {
+			this.logger.warn('Failed to resolve builder delegate adapter; agent building disabled', {
+				error: error instanceof Error ? error.message : String(error),
+			});
 			return null;
 		}
 	}
@@ -368,6 +390,14 @@ export class InstanceAiAdapterService {
 		} catch {
 			return null;
 		}
+	}
+
+	/** Per-user gate for config-based evals: on when the config-evaluations
+	 *  experiment is on the enabled variant, so we never create evals the user
+	 *  can't run. Fails closed: `getFeatureFlags` returns `{}` on a PostHog outage. */
+	async isConfigEvalsEnabled(user: User): Promise<boolean> {
+		const flags = await Container.get(PostHogClient).getFeatureFlags(user);
+		return flags?.[CONFIG_EVALUATIONS_FLAG] === CONFIG_EVALUATIONS_ENABLED_VARIANT;
 	}
 
 	private buildAiGatewayNodeMeta(
@@ -1121,6 +1151,17 @@ export class InstanceAiAdapterService {
 					mockDataSources: pinDataPlan.mockDataSources,
 				};
 
+				// In queue mode the worker rebuilds the run from persisted `execution.data`,
+				// where top-level `runData.source` doesn't survive. Persist it in
+				// `manualData` so worker-side statistics can classify IAI runs.
+				if (runData.executionData) {
+					runData.executionData.manualData = {
+						...runData.executionData.manualData,
+						userId: user.id,
+						source: runData.source,
+					};
+				}
+
 				// When manual executions are offloaded to workers (queue mode), the worker
 				// rebuilds the run from the persisted `execution.data`. The adapter's manual
 				// run details otherwise live in transient top-level fields that don't survive
@@ -1141,6 +1182,7 @@ export class InstanceAiAdapterService {
 						manualData: {
 							userId: runData.userId,
 							triggerToStartFrom: runData.triggerToStartFrom,
+							source: runData.source,
 						},
 						executionData: null,
 					});
@@ -3240,16 +3282,17 @@ const KNOWN_TRIGGER_TYPES = new Set([
 	SCHEDULE_TRIGGER_NODE_TYPE,
 ]);
 
-/** Find the trigger node: known types first, then fall back to naive string matching. */
+/**
+ * Find the trigger node: known types first (priority among multiple triggers),
+ * then the canonical n8n-workflow detection — the same detection the
+ * instance-ai simulation planner uses, so a trigger the planner simulates
+ * (e.g. suffix-less cron/emailReadImap) is always found here too.
+ */
 function findTriggerNode(nodes: INode[]): INode | undefined {
-	// Prefer known trigger types
 	const known = nodes.find((n) => KNOWN_TRIGGER_TYPES.has(n.type));
 	if (known) return known;
 
-	// Fall back to any node with "Trigger" or "webhook" in its type
-	return nodes.find(
-		(n) => n.type.includes('Trigger') || n.type.includes('trigger') || n.type.includes('webhook'),
-	);
+	return nodes.find((n) => isTriggerNodeType(n.type));
 }
 
 /** Get the execution mode based on the trigger node type. */
