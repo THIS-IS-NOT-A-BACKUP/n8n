@@ -37,6 +37,7 @@ vi.mock('@n8n/ai-utilities', () => ({
 }));
 
 import { Container } from '@n8n/di';
+import { TELEMETRY_EVENT } from '@n8n/telemetry';
 import { mock } from 'vitest-mock-extended';
 import { Expression } from 'n8n-workflow';
 import type {
@@ -2201,6 +2202,7 @@ describe('createWorkflowAdapter', () => {
 		await adapter.publish('wf-new');
 
 		expect(mockTelemetry.track).toHaveBeenCalledWith('Builder published workflow', {
+			user_id: 'user-1',
 			thread_id: 'thread-1',
 			workflow_id: 'wf-new',
 			executed_by: 'ai',
@@ -3259,6 +3261,7 @@ describe('createExecutionAdapter run()', () => {
 		await adapter.run('wf-1');
 
 		expect(mockTelemetry.track).toHaveBeenCalledWith('Builder executed workflow', {
+			user_id: 'user-1',
 			thread_id: 'thread-1',
 			workflow_id: 'wf-1',
 			executed_by: 'ai',
@@ -3956,11 +3959,23 @@ describe('createContext — builder delegate telemetry', () => {
 		const created = await context.builderDelegate?.createAgent('New agent');
 
 		expect(created).toEqual({ agentId: 'agent-9', projectId: 'proj-1' });
-		expect(mockTelemetry.track).toHaveBeenCalledWith('Builder created agent', {
+		expect(mockTelemetry.track).toHaveBeenCalledWith(TELEMETRY_EVENT.AGENTS.BUILDER_CREATED_AGENT, {
 			thread_id: 'thread-1',
 			agent_id: 'agent-9',
 			project_id: 'proj-1',
 		});
+	});
+
+	it('forwards the client-minted agent id through the telemetry wrapper', async () => {
+		const service = createAdapterWithGatewayMock(vi.fn(), { telemetry: { track: vi.fn() } });
+		const delegate = mock<InstanceAiBuilderDelegate>();
+		delegate.createAgent.mockResolvedValue({ agentId: 'aBcDeFgHiJkLmNoP', projectId: 'proj-1' });
+		mockBuilderModuleActive(delegate);
+
+		const context = service.createContext(mockUser, { threadId: 'thread-1', projectId: 'proj-1' });
+		await context.builderDelegate?.createAgent('New agent', 'aBcDeFgHiJkLmNoP');
+
+		expect(delegate.createAgent).toHaveBeenCalledWith('New agent', 'aBcDeFgHiJkLmNoP');
 	});
 
 	it('does not track when the context has no threadId', async () => {
@@ -3974,7 +3989,7 @@ describe('createContext — builder delegate telemetry', () => {
 		await context.builderDelegate?.createAgent('New agent');
 
 		expect(mockTelemetry.track).not.toHaveBeenCalledWith(
-			'Builder created agent',
+			TELEMETRY_EVENT.AGENTS.BUILDER_CREATED_AGENT,
 			expect.anything(),
 		);
 	});
